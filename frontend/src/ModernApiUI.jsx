@@ -348,17 +348,7 @@ const MethodTag = ({ method }) => {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-const MOCK_RESPONSE = {
-  mapped_endpoint: { path: '/users', method: 'POST' },
-  schema_issues: [
-    "Field 'email' should be marked as required",
-    "Field 'password' is missing from request schema",
-  ],
-  test_results: [
-    { endpoint: 'POST /users', status: 200, msg: 'User created successfully — all required fields present.' },
-    { endpoint: 'POST /users', status: 400, msg: "Missing 'password' field triggers validation error as expected." },
-  ],
-};
+
 
 export default function App() {
   const [prompt, setPrompt] = useState('');
@@ -368,15 +358,34 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const textareaRef = useRef(null);
 
-  const runTest = () => {
-    if (!prompt.trim() || loading) return;
-    setLoading(true);
-    setOutput(null);
-    setTimeout(() => {
-      setOutput(MOCK_RESPONSE);
-      setLoading(false);
-    }, 1800);
-  };
+  const handleRun = async () => {
+  const data = await sendPrompt(prompt);
+  setOutput(data);
+};
+
+const sendPrompt = async (res1) => {
+  const res = await fetch("http://localhost:3000/parse", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      text: res1
+    })
+  });
+
+  return await res.json();
+};
+
+  // const runTest = () => {
+  //   if (!prompt.trim() || loading) return;
+  //   setLoading(true);
+  //   setOutput(null);
+  //   setTimeout(() => {
+  //     setOutput();
+  //     setLoading(false);
+  //   }, 1800);
+  // };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runTest();
@@ -456,7 +465,7 @@ export default function App() {
                   rows={2}
                   placeholder="e.g. The API should allow creating a new user with email and password..."
                 />
-                <button style={css.runBtn(loading || !prompt.trim())} onClick={runTest}>
+                <button style={css.runBtn(loading || !prompt.trim())} onClick={handleRun}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
                     <polygon points="5 3 19 12 5 21 5 3" />
                   </svg>

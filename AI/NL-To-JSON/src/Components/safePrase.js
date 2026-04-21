@@ -33,3 +33,30 @@ export function safeParseJSON(str) {
   }
 }
 
+
+
+export function extractOpenAPISpec(aiResponse) {
+  try {
+    // 1. Get raw result field
+    let raw = aiResponse?.result;
+
+    if (!raw) {
+      throw new Error("No result field found");
+    }
+
+    // 2. If it's already an object → return directly
+    if (typeof raw === "object") {
+      return raw;
+    }
+
+    // 3. If it's string → parse JSON safely
+    if (typeof raw === "string") {
+      return JSON.parse(raw);
+    }
+
+    throw new Error("Unsupported AI format");
+  } catch (err) {
+    console.error("❌ Extraction failed:", err.message);
+    return null;
+  }
+}

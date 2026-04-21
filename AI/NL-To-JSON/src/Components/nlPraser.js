@@ -6,6 +6,7 @@ const MODEL = "openai/gpt-oss-120b:free";
 const API_KEY = process.env.API_KEY;
 
 export async function parseRequirement(text) {
+  console.log(API_KEY);
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
