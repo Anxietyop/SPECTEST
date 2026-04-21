@@ -1,37 +1,13 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SpecTest</title>
-
-  <link rel="stylesheet" href="style.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
-</head>
-
-<body>
-  <div class="container">
-    
-    <h1 class="title">SpecTest Dashboard</h1>
-    <p class="subtitle">AI-powered API validation system</p>
-
-    <div class="card">
-
-      <div class="upload-section">
-        <label>Upload Requirements</label>
-       <input type="file" id="reqFile" 
-        accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain">      
-      </div>
-
-      <div class="upload-section">
-        <label>Upload OpenAPI Spec</label>
-        <input type="file" id="apiFile" accept=".json,.yaml,.yml,application/json,application/x-yaml">
-      </div>
-
-      <button class="run-btn">Run Analysis </button>
-
-    </div>
-
-  </div>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>frontend</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>
