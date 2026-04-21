@@ -1,31 +1,34 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Body
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
 from typing import Optional, Dict, Any, List
-import yaml
+import json
 from faker import Faker
 from rapidfuzz import fuzz
 
 app = FastAPI()
 fake = Faker()
 
-BASE_URL = "https://jsonplaceholder.typicode.com"
+# Enable CORS for Frontend/Node communication
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+BASE_URL = "https://jsonplaceholder.typicode.com"
+latest_result = None
 
 # -----------------------------
 # 📦 MODELS
 # -----------------------------
-class TestRequest(BaseModel):
-    url: str
-    method: str = "GET"
-    payload: Optional[Dict[str, Any]] = None
-
-
 class Field(BaseModel):
     name: str
     required: bool
     type: Optional[str] = None
-
 
 class Requirement(BaseModel):
     action: str
@@ -34,216 +37,200 @@ class Requirement(BaseModel):
     constraints: List[str]
     ambiguities: List[str]
 
-
 # -----------------------------
-# 📄 OPENAPI PARSER
+# 📄 LOGIC HELPERS
 # -----------------------------
-def parse_openapi(file_path: str):
-    with open(file_path, "r") as f:
-        spec = yaml.safe_load(f)
 
+def convert_spec_to_endpoints(spec: dict):
     endpoints = []
-
-    for path, methods in spec.get("paths", {}).items():
+    paths = spec.get("paths", {})
+    for path, methods in paths.items():
         for method, details in methods.items():
-            request_body = details.get("requestBody", {})
-            content = request_body.get("content", {})
-            json_content = content.get("application/json", {})
-            schema = json_content.get("schema", {})
+            content = details.get("requestBody", {}).get("content", {})
+            schema = content.get("application/json", {}).get("schema", {})
 
             endpoints.append({
                 "path": path,
                 "method": method.upper(),
-                "schema": schema,
+                "schema": schema or {},
                 "has_path_param": "{" in path
             })
-
     return endpoints
 
-
-# -----------------------------
-# 🧠 PAYLOAD GENERATION
-# -----------------------------
 def generate_payload(schema):
-    if not schema:
-        return {}
-
+    if not schema: return {}
     payload = {}
-    for field, details in schema.get("properties", {}).items():
+    properties = schema.get("properties", {})
+    for field, details in properties.items():
         t = details.get("type", "string")
-
         if t == "string":
-            payload[field] = fake.email() if "email" in field else fake.name()
+            payload[field] = fake.email() if "email" in field.lower() else fake.name()
         elif t == "integer":
             payload[field] = fake.random_int()
         elif t == "boolean":
             payload[field] = True
         else:
             payload[field] = "sample"
-
     return payload
-
 
 def generate_negative_payload(schema):
     payload = generate_payload(schema)
     required = schema.get("required", [])
-
     if required:
         payload.pop(required[0], None)
-
     return payload
 
-
-# -----------------------------
-# 🔗 CHAINING
-# -----------------------------
-def extract_id(data):
-    if isinstance(data, dict):
-        return data.get("id")
-    return None
-
-
-# -----------------------------
-# 🔥 SMART MAPPING (UPDATED)
-# -----------------------------
-def smart_map_to_endpoint(req, endpoints):
-    action = req.action.lower()
-    entity = req.entity.lower()
-
+def smart_map_to_endpoint(req: Requirement, endpoints):
     action_map = {
-        "create": "POST",
-        "add": "POST",
-        "register": "POST",
-        "update": "PUT",
-        "delete": "DELETE",
-        "fetch": "GET",
-        "get": "GET",
-        "retrieve": "GET"
+        "create": "POST", "add": "POST", "register": "POST",
+        "update": "PUT", "delete": "DELETE",
+        "fetch": "GET", "get": "GET", "retrieve": "GET"
     }
-
-    target_method = action_map.get(action, None)
-
+    target_method = action_map.get(req.action.lower(), "GET")
+    
     best_match = None
     best_score = 0
 
     for ep in endpoints:
-        path = ep["path"].lower()
-
-        score = fuzz.partial_ratio(entity, path)
-
-        if target_method and ep["method"] == target_method:
+        score = fuzz.partial_ratio(req.entity.lower(), ep["path"].lower())
+        if ep["method"] == target_method:
             score += 20
-
         if score > best_score:
             best_score = score
             best_match = ep
 
-    if best_score < 50:
-        return None
+    return best_match if best_score >= 50 else None
 
-    return best_match
-
-
-# -----------------------------
-# 🔍 SCHEMA COMPARISON
-# -----------------------------
-def compare_schema(req, schema):
+def compare_schema(req: Requirement, schema):
     issues = []
-
     props = schema.get("properties", {})
-    required = schema.get("required", [])
+    required_in_api = schema.get("required", [])
 
     for field in req.fields:
         if field.name not in props:
             issues.append(f"Field '{field.name}' missing in API")
-
-        if field.required and field.name not in required:
+        if field.required and field.name not in required_in_api:
             issues.append(f"Field '{field.name}' should be required")
-
     return issues
 
-
-# -----------------------------
-# 🚀 TEST ENGINE
-# -----------------------------
-def run_tests(file_path):
-    endpoints = parse_openapi(file_path)
+def run_specific_test(ep):
+    url = BASE_URL + ep["path"]
+    method = ep["method"]
     results = []
-    stored = {}
 
-    for ep in endpoints:
-        path = ep["path"]
+    try:
+        # 1. Health Check (GET)
+        res_get = requests.get(url, timeout=5)
+        results.append({
+            "endpoint": url,
+            "method": "GET",
+            "status": res_get.status_code
+        })
 
-        if ep["has_path_param"]:
-            for k, v in stored.items():
-                path = path.replace(f"{{{k}}}", str(v))
+        # 2. Functional Check (POST/PUT)
+        if method == "POST":
+            valid = generate_payload(ep["schema"])
+            res_v = requests.post(url, json=valid)
+            
+            invalid = generate_negative_payload(ep["schema"])
+            res_i = requests.post(url, json=invalid)
+            
+            issue = "Validation test executed"
+            # If server returns 201/200 for a payload missing required fields
+            if res_i.status_code < 400 and ep["schema"].get("required"):
+                issue = "Required field not enforced"
 
-        url = BASE_URL + path
-        method = ep["method"]
-
-        try:
-            if method == "GET":
-                res = requests.get(url, timeout=5)
-
-                results.append({
-                    "endpoint": url,
-                    "method": method,
-                    "status": res.status_code
-                })
-
-            elif method == "POST":
-                valid = generate_payload(ep["schema"])
-                res_valid = requests.post(url, json=valid)
-
-                invalid = generate_negative_payload(ep["schema"])
-                res_invalid = requests.post(url, json=invalid)
-
-                try:
-                    data = res_valid.json()
-                    stored["id"] = extract_id(data)
-                except:
-                    pass
-
-                issue = None
-                if res_valid.status_code in [200, 201] and res_invalid.status_code < 400:
-                    issue = "Required field not enforced"
-
-                results.append({
-                    "endpoint": url,
-                    "valid_status": res_valid.status_code,
-                    "invalid_status": res_invalid.status_code,
-                    "issue": issue
-                })
-
-        except Exception as e:
-            results.append({"error": str(e)})
-
+            results.append({
+                "endpoint": url,
+                "valid_status": res_v.status_code,
+                "invalid_status": res_i.status_code,
+                "issue": issue
+            })
+    except Exception as e:
+        results.append({"error": str(e)})
+    
     return results
-
 
 # -----------------------------
 # 🌐 ROUTES
 # -----------------------------
-@app.get("/run-all-tests")
-def run_all():
-    return run_tests("sample_api.yaml")
 
+@app.post("/auto-analyze")
+def auto_analyze(payload: dict = Body(...)):
+    global latest_result
+    print("🔥 AUTO-ANALYZE TRIGGERED")
 
-@app.post("/analyze-requirement")
-def analyze(req: Requirement):
-    endpoints = parse_openapi("sample_api.yaml")
+    # Extract data
+    spec = payload.get("spec")
+    requirements_list = payload.get("requirements", [])
+    print("SPEC:", spec)
+    print("REQ COUNT:", len(requirements_list))
+    
+    if not spec:
+        return {"error": "No spec received"}
+    
+    if not requirements_list:
+        # Fallback to single 'requirement' if 'requirements' list is missing
+        single_req = payload.get("requirement")
+        if single_req:
+            requirements_list = [single_req]
+        else:
+            return {"error": "No requirements received"}
 
-    ep = smart_map_to_endpoint(req, endpoints)
+    # Parse spec if string
+    if isinstance(spec, str):
+        try:
+            spec = json.loads(spec)
+        except:
+            return {"error": "Invalid JSON spec"}
 
-    if not ep:
-        return {"error": "No matching endpoint"}
+    endpoints = convert_spec_to_endpoints(spec)
+    all_results = []
 
-    schema_issues = compare_schema(req, ep["schema"])
-    test_results = run_tests("sample_api.yaml")
+    # Iterate through each requirement
+    for req_data in requirements_list:
+        try:
+            # Ensure required fields exist in req_data
+            if "constraints" not in req_data: req_data["constraints"] = []
+            if "ambiguities" not in req_data: req_data["ambiguities"] = []
+            
+            req_model = Requirement(**req_data)
+            ep = smart_map_to_endpoint(req_model, endpoints)
 
-    return {
-        "mapped_endpoint": ep,
-        "schema_issues": schema_issues,
-        "test_results": test_results,
-        "ambiguities": req.ambiguities
-    }
+            if not ep:
+                all_results.append({
+                    "entity": req_model.entity,
+                    "error": "No matching endpoint found",
+                    "ambiguities": req_model.ambiguities
+                })
+                continue
+
+            schema_issues = compare_schema(req_model, ep["schema"])
+            test_results = run_specific_test(ep)
+
+            all_results.append({
+                "entity": req_model.entity,
+                "mapped_endpoint": ep,
+                "schema_issues": schema_issues,
+                "test_results": test_results,
+                "ambiguities": req_model.ambiguities
+            })
+        except Exception as e:
+            all_results.append({
+                "entity": req_data.get("entity", "Unknown"),
+                "error": f"Processing error: {str(e)}"
+            })
+
+    latest_result = all_results
+    print(f"\n🔥 PROCESSED {len(all_results)} REQUIREMENTS")
+    return all_results
+
+@app.get("/auto-analyze/result")
+def get_last_result():
+    if latest_result is None:
+        return {"error": "No result available yet"}
+    return latest_result
+
+@app.get("/")
+def root():
+    return {"status": "FastAPI Batch Logic Engine running 🚀"}

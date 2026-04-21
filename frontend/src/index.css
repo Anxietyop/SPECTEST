@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@layer components {
+  /* Brutalist Components */
+  .brutalist-card {
+    @apply border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] transition-all;
+  }
+
+  .brutalist-card-red {
+    @apply border-4 border-black bg-red-50 shadow-[8px_8px_0px_0px_rgba(220,38,38,1)];
+  }
+
+  .brutalist-button {
+    @apply bg-black text-white px-6 py-3 font-black text-sm uppercase tracking-widest border-2 border-black transition-all active:translate-y-1 active:shadow-none shadow-[4px_4px_0px_0px_rgba(59,130,246,1)] flex items-center gap-2;
+  }
+
+  .brutalist-input {
+    @apply w-full bg-white border-0 text-black placeholder:text-slate-300 focus:outline-none resize-none p-4 text-sm font-black uppercase leading-relaxed;
+  }
+
+  .stat-card-border {
+    @apply border-r-4 border-black last:border-0;
+  }
+
+  /* Animations */
+  .animate-processing {
+    @apply w-20 h-20 border-8 border-black border-t-blue-600 rounded-full animate-spin;
+  }
+
+  .pulse-red {
+    @apply bg-red-600 text-white p-4 border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] animate-pulse;
+  }
+}
