@@ -377,15 +377,15 @@ const sendPrompt = async (res1) => {
   return await res.json();
 };
 
-  // const runTest = () => {
-  //   if (!prompt.trim() || loading) return;
-  //   setLoading(true);
-  //   setOutput(null);
-  //   setTimeout(() => {
-  //     setOutput();
-  //     setLoading(false);
-  //   }, 1800);
-  // };
+  const runTest = () => {
+    if (!prompt.trim() || loading) return;
+    setLoading(true);
+    setOutput(null);
+    setTimeout(() => {
+      setOutput(MOCK_RESPONSE);
+      setLoading(false);
+    }, 1800);
+  };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runTest();
