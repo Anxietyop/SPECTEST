@@ -264,22 +264,41 @@ function EntityPanel({ entity }) {
 // ─────────────────────────────────────────────
 const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
-const sendPromptToAI = async (res1) => {
-  const res = await fetch('http://localhost:3000/parse', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: res1 }),
-  });
-  if (!res.ok) throw new Error(`AI request failed: ${res.status}`);
-  return res.json();
+const sendPromptToAI = async (text) => {
+  try {
+    const res = await fetch('http://localhost:3000/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error(`AI request failed: ${res.status}`);
+    const data = await res.json();
+    
+    // Return the parsed data from AI service
+    if (data.spec && data.requirements) {
+      console.log("AI Service response:", { spec: !!data.spec, requirements: data.requirements.length });
+      return data; // { spec, requirements }
+    }
+    
+    throw new Error("Invalid AI response format");
+  } catch (err) {
+    console.error("AI Service error:", err);
+    throw err;
+  }
 };
 
 const pollBackend = async () => {
-  const res = await fetch('http://localhost:8000/auto-analyze/result');
-  if (!res.ok) throw new Error(`Backend poll failed: ${res.status}`);
-  const test = await res.json();
-  console.log("Debug:", test);
-  return res.json();
+  try {
+    const res = await fetch('http://localhost:8000/auto-analyze/result');
+    if (!res.ok) throw new Error(`Backend poll failed: ${res.status}`);
+    const result = await res.json();
+    
+    // Ensure result is an array
+    return Array.isArray(result) ? result : [result];
+  } catch (err) {
+    console.error("Backend poll error:", err);
+    throw err;
+  }
 };
 
 // ─────────────────────────────────────────────
@@ -308,19 +327,50 @@ export default function App() {
     setActiveTab(0);
 
     try {
-      await sendPromptToAI(prompt);
-
+      // Step 1: Send to AI service
+      console.log("Sending prompt to AI service...");
+      const aiResponse = await sendPromptToAI(prompt);
+      
+      // aiResponse should contain { spec, requirements }
+      // AI service should have already called backend with this data
+      
+      // Step 2: Poll backend for results (AI service sends to backend automatically)
       let result = null;
-      for (let i = 0; i < 10; i++) {
-        await delay(800);
-        result = await pollBackend();
-        if (Array.isArray(result) ? result.length > 0 : result?.mapped_endpoint) break;
+      let attempts = 0;
+      const maxAttempts = 15; // Increase attempts since parsing takes time
+      
+      console.log("Polling backend for results...");
+      for (let i = 0; i < maxAttempts; i++) {
+        await delay(600); // Slightly longer delay
+        attempts++;
+        
+        try {
+          result = await pollBackend();
+          
+          // Check if we have meaningful results
+          if (Array.isArray(result) && result.length > 0) {
+            // Make sure we have at least one entity with actual data
+            const hasData = result.some(r => r.mapped_endpoint || r.test_results?.length > 0);
+            if (hasData) {
+              console.log(`Got results after ${attempts} attempts`);
+              break;
+            }
+          }
+        } catch (err) {
+          // Keep polling even if this attempt fails
+          console.log(`Poll attempt ${attempts} failed, retrying...`);
+        }
+      }
+
+      if (!result || result.length === 0) {
+        throw new Error("No results from backend - ensure AI, Backend, and Frontend are running");
       }
 
       // normalise to array regardless of what backend returns
       setOutput(Array.isArray(result) ? result : [result]);
+      console.log(`Analysis complete: ${result.length} entities processed`);
     } catch (err) {
-      console.error(err);
+      console.error("Analysis error:", err);
       setOutput([{
         entity: 'Error',
         schema_issues: [err.message],

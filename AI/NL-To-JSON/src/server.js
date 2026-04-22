@@ -48,30 +48,34 @@ app.post("/parse", upload.single("file"), async (req, res) => {
     }
 
     // ─── parse ───
-    const response = await parseRequirement(text);
+    console.log("Parsing requirement text...");
+    const { spec, requirements } = await parseRequirement(text);
 
     // ─── debug log ───
     fs.appendFileSync(
       logPath,
       "[POST /parse] Response:\n" +
-        JSON.stringify(response, null, 2) +
-        "\n\n" +
-        "[Response sent]: \n" +
-        JSON.stringify({ spec: response })
+        JSON.stringify({ spec, requirements }, null, 2) +
+        "\n\n"
     );
 
-    // ─── call FastAPI ───
+    console.log("Calling FastAPI backend...");
+
+    // ─── call FastAPI ─── with both spec and requirements
     try {
       await fetch("http://127.0.0.1:8000/auto-analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec: response }),
+        body: JSON.stringify({ spec, requirements }),
       });
+      console.log("FastAPI call successful");
     } catch (err) {
       console.error("FastAPI call failed:", err.message);
+      // Don't fail the response, just log it
     }
 
-    return res.json(response);
+    // ─── return parsed data to frontend ───
+    return res.json({ spec, requirements });
 
   } catch (err) {
     console.error("Parse error:", err);

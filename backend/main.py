@@ -163,62 +163,89 @@ def auto_analyze(payload: dict = Body(...)):
     # Extract data
     spec = payload.get("spec")
     requirements_list = payload.get("requirements", [])
-    print("SPEC:", spec)
-    print("REQ COUNT:", len(requirements_list))
+    
+    print(f"SPEC type: {type(spec)}")
+    print(f"REQ COUNT: {len(requirements_list)}")
     
     if not spec:
         return {"error": "No spec received"}
     
+    # If no requirements provided but spec exists, extract from payload
     if not requirements_list:
-        # Fallback to single 'requirement' if 'requirements' list is missing
+        # Check if requirements is a single object (backward compatibility)
         single_req = payload.get("requirement")
         if single_req:
             requirements_list = [single_req]
         else:
-            return {"error": "No requirements received"}
+            # Create a default requirement if nothing provided
+            print("Warning: No requirements provided, backend will attempt analysis anyway")
+            requirements_list = []
 
     # Parse spec if string
     if isinstance(spec, str):
         try:
             spec = json.loads(spec)
-        except:
-            return {"error": "Invalid JSON spec"}
+        except Exception as e:
+            return {"error": f"Invalid JSON spec: {str(e)}"}
 
     endpoints = convert_spec_to_endpoints(spec)
+    print(f"Extracted {len(endpoints)} endpoints from spec")
+    
     all_results = []
 
-    # Iterate through each requirement
-    for req_data in requirements_list:
-        try:
-            # Ensure required fields exist in req_data
-            if "constraints" not in req_data: req_data["constraints"] = []
-            if "ambiguities" not in req_data: req_data["ambiguities"] = []
-            
-            req_model = Requirement(**req_data)
-            ep = smart_map_to_endpoint(req_model, endpoints)
+    # If we have requirements, process them
+    if requirements_list:
+        # Iterate through each requirement
+        for req_data in requirements_list:
+            try:
+                # Ensure required fields exist in req_data
+                if "constraints" not in req_data: req_data["constraints"] = []
+                if "ambiguities" not in req_data: req_data["ambiguities"] = []
+                
+                req_model = Requirement(**req_data)
+                ep = smart_map_to_endpoint(req_model, endpoints)
 
-            if not ep:
+                if not ep:
+                    all_results.append({
+                        "entity": req_model.entity,
+                        "error": "No matching endpoint found",
+                        "ambiguities": req_model.ambiguities,
+                        "schema_issues": [],
+                        "test_results": [],
+                        "mapped_endpoint": None
+                    })
+                    continue
+
+                schema_issues = compare_schema(req_model, ep["schema"])
+                test_results = run_specific_test(ep)
+
                 all_results.append({
                     "entity": req_model.entity,
-                    "error": "No matching endpoint found",
+                    "mapped_endpoint": ep,
+                    "schema_issues": schema_issues,
+                    "test_results": test_results,
                     "ambiguities": req_model.ambiguities
                 })
-                continue
-
-            schema_issues = compare_schema(req_model, ep["schema"])
-            test_results = run_specific_test(ep)
-
+            except Exception as e:
+                print(f"Error processing requirement: {str(e)}")
+                all_results.append({
+                    "entity": req_data.get("entity", "Unknown"),
+                    "error": f"Processing error: {str(e)}",
+                    "schema_issues": [],
+                    "test_results": [],
+                    "ambiguities": [],
+                    "mapped_endpoint": None
+                })
+    else:
+        # No requirements - just return endpoint analysis
+        print("No requirements provided - analyzing endpoints directly")
+        for ep in endpoints:
             all_results.append({
-                "entity": req_model.entity,
+                "entity": ep["path"] or "Unknown",
                 "mapped_endpoint": ep,
-                "schema_issues": schema_issues,
-                "test_results": test_results,
-                "ambiguities": req_model.ambiguities
-            })
-        except Exception as e:
-            all_results.append({
-                "entity": req_data.get("entity", "Unknown"),
-                "error": f"Processing error: {str(e)}"
+                "schema_issues": [],
+                "test_results": run_specific_test(ep),
+                "ambiguities": []
             })
 
     latest_result = all_results
